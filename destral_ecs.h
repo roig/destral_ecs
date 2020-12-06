@@ -1,28 +1,29 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <assert.h>
-#include <stdbool.h>
-#include <string.h>
+#ifndef DESTRAL_ECS_H
+#define DESTRAL_ECS_H
 
 /*
-    destral_ecs.c --
+    destral_ecs.h -- simple ECS system
 
+    Do this:
+        #define DESTRAL_ECS_IMPL
+    before you include this file in *one* C file to create the implementation.
+
+    FIX (dani) todo proper instructions
 
 */
-
-
+#include <stdint.h>
+#include <stdbool.h>
 
 
 /*  de_cp_id:
-    
+
     type identifier for a component.
 
     component storages are preallocated in a array size of DE_COMPONENT_MAX_ID.
     this allows fast lookup for storage but will occupy more memory.
 
     you will normally not need more than UINT16_MAX components..
-    If you need more, beware that changing to uint32_t the preallocation 
+    If you need more, beware that changing to uint32_t the preallocation
     cost will be huge...
 */
 
@@ -34,7 +35,7 @@ typedef uint16_t de_cp_id;
 
 
 /*  de_entity:
-    
+
     opaque 32 bits entity identifier.
 
     A 32 bits entity identifier guarantees:
@@ -42,7 +43,7 @@ typedef uint16_t de_cp_id;
     20 bits for the entity number(suitable for almost all the games).
     12 bit for the version(resets in[0 - 4095]).
 
-    use the functions de_entity_version and de_entity_identifier to retrieve
+    Use the functions de_entity_version and de_entity_identifier to retrieve
     each part of a de_entity.
 */
 
@@ -56,36 +57,21 @@ typedef struct de_entity_id { uint32_t id; } de_entity_id;
 #define DE_ENTITY_VERSION_MASK  ((uint32_t)0xFFF)   /* Mask to use to get the version out of an identifier. */
 #define DE_ENTITY_SHIFT         ((size_t)20)        /* Extent of the entity number within an identifier. */   
 
-/* Returns the version part of the entity */
-de_entity_ver de_entity_version(de_entity e) { return (de_entity_ver) { .ver = e >> DE_ENTITY_SHIFT }; }
-
-/* Returns the id part of the entity */
-de_entity_id de_entity_identifier(de_entity e) { return (de_entity_id) { .id = e & DE_ENTITY_ID_MASK }; }
-
-/* Makes a de_entity from entity_id and entity_version */
-de_entity de_make_entity(de_entity_id id, de_entity_ver version) { return id.id | (version.ver << DE_ENTITY_SHIFT); }
-
-
-/*
-    the de_null is a de_entity that represents a null entity.
-*/
-// FIX (dani) Only This line will be in the header.
+/* the de_null is a de_entity that represents a null entity. */
 extern const de_entity de_null;
-const de_entity de_null = (de_entity)DE_ENTITY_ID_MASK;
-
-
 
 
 /*
     de_sparse:
 
     How the components sparse set works?
-    The main idea comes from ENTT C++ library.
+    The main idea comes from ENTT C++ library:
+    https://github.com/skypjack/entt
     (Credits to skypjack) for the awesome library.
-    
+
     We have an sparse array that maps entity identifiers to the dense array indices that contains the full entity.
-    
-    
+
+
     sparse array:
     sparse => contains the index in the dense array of an entity identifier (without version)
     that means that the index of this array is the entity identifier (without version) and
@@ -98,7 +84,7 @@ const de_entity de_null = (de_entity)DE_ENTITY_ID_MASK;
 
     this allows fast itreration on each entity using the dense array or
     lookup for an entity position in the dense using the sparse array.
-        
+
     ---------- Example:
     Adding:
      de_entity = 3 => (e3)
@@ -107,12 +93,12 @@ const de_entity de_null = (de_entity)DE_ENTITY_ID_MASK;
     In order to check the entities first in the sparse, we have to retrieve the de_entity_id part of the de_entity.
     The de_entity_id part will be used to index the sparse array.
     The full de_entity will be the value in the dense array.
-        
-    
+
+
                            0    1     2    3
     sparse idx:         eid0 eid1  eid2  eid3    this is the array index based on de_entity_id (NO VERSION)
     sparse content:   [ null,   1, null,   0 ]   this is the array content. (index in the dense array)
-    
+
     dense         idx:    0    1
     dense     content: [ e3,  e2]
 */
@@ -132,10 +118,210 @@ typedef struct de_sparse {
     size_t dense_size;
 } de_sparse;
 
+
+
+/*
+    de_storage
+
+    handles the raw component data aligned with a de_sparse.
+    stores packed component data elements for each entity in the sparse set.
+
+    the packed component elements data is aligned always with the dense array from the sparse set.
+
+    adding/removing an entity to the storage will:
+        - add/remove from the sparse
+        - use the sparse_set dense array position to move the components data aligned.
+
+    Example:
+
+                  idx:    0    1    2
+    dense     content: [ e3,  e2,  e1]
+    cp_data   content: [e3c, e2c, e1c] contains component data for the entity in the corresponding index
+
+    If now we remove from the storage the entity e2:
+
+                  idx:    0    1    2
+    dense     content: [ e3,  e1]
+    cp_data   content: [e3c, e1c] contains component data for the entity in the corresponding index
+
+    note that the alignment to the index in the dense and in the cp_data is always preserved.
+
+    This allows fast iteration for each component and having the entities accessible aswell.
+    for (i = 0; i < dense_size; i++) {  // mental example, wrong syntax
+        de_entity e = dense[i];
+        void*   ecp = cp_data[i];
+    }
+
+
+*/
+typedef struct de_storage {
+    void* cp_data; /*  packed component elements array. aligned with sparse->dense*/
+    size_t cp_data_size; /* number of elements in the cp_data array */
+    size_t cp_sizeof; /* sizeof for each cp_data element */
+    de_sparse sparse;
+} de_storage;
+
+
+/*  de_registry
+
+    is the global context that holds each components and entities.
+
+    FIX (dani) todo list:
+    - entity creation/destruction reciclying ids (DONE)
+    - hability to create/destroy sparse sets of each component type. (DONE)
+    - add/remove components to entities (DONE)
+    - iteration of components/entites in a view
+
+*/
+typedef struct de_registry {
+    de_storage** storages; /* DE_COMPONENT_MAX_ID array preallocated in the begining */
+    size_t entities_size;
+    de_entity* entities; /* contains all the created entities */
+    de_entity_id available_id; /* first index in the list to recycle */
+} de_registry;
+
+
+/* de_entity utilities */
+de_entity_ver de_entity_version(de_entity e); /* Returns the version part of the entity */
+de_entity_id de_entity_identifier(de_entity e); /* Returns the id part of the entity */
+de_entity de_make_entity(de_entity_id id, de_entity_ver version); /* Makes a de_entity from entity_id and entity_version */
+
+
+/* de_registry function */
+de_registry* de_init(de_registry* r); /* initializes a de_registry */
+de_registry* de_new(); /* allocates and initializes a de_registry */
+void de_deinit(de_registry* r); /* deinitializes a de_registry */
+void de_delete(de_registry* r); /* deinitializes and deletes a registry */
+
+/* 
+    returns true if the component is registered correctly.
+    returns false if the component can't be registered (another one exists)
+*/
+bool de_register_component(de_registry* r, uint16_t cp_id, size_t cp_size);
+
+/*
+    checks if an entity identifier is a valid one.
+    the entity e can be a valid or an invalid one.
+    returns true if the identifier is valid, false otherwise
+*/
+bool de_valid(de_registry* r, de_entity e);
+
+/*
+    creates a new entity and returns it
+    the identifier can be:
+     - new identifier in case no entities have been previously destroyed
+     - recycled identifier with an update version.
+*/
+de_entity de_create(de_registry* r);
+
+/*
+    removes all the components from an entity and makes it orphaned (no components in it)
+    the entity remains alive and valid without components.
+
+    warning: attempting to use invalid entity results in undefined behavior
+
+*/
+void de_remove_all(de_registry* r, de_entity e);
+
+/*
+    removes the given component from the entity.
+
+    warning: attempting to use invalid entity results in undefined behavior
+*/
+void de_remove(de_registry* r, de_entity e, de_cp_id cp_id);
+
+/*
+    destroys an entity.
+
+    when an entity is destroyed, its version is updated and the identifier
+    can be recycled when needed.
+
+    warning:
+    Undefined behavior if the entity is not valid.
+*/
+void de_destroy(de_registry* r, de_entity e);
+
+/*
+    checks if the entity has the given component
+
+    warning: using an invalid entity results in undefined behavior.
+*/
+bool de_has(de_registry* r, de_entity e, de_cp_id cp_id);
+
+/*
+    assigns a given component id to an entity and returns it.
+
+    a new memory instance of component id cp_id is allocated for the
+    entity e and returned.
+
+    note: the memory returned is only allocated not initialized.
+
+    warning: use an invalid entity or assigning a component to a valid
+    entity that currently has this component instance id results in
+    undefined behavior.
+    if cp_id is not registered the result is undefined behavior.
+*/
+void* de_emplace(de_registry* r, de_entity e, de_cp_id cp_id);
+
+/*
+    returns the pointer to the given component id data for the entity
+
+    warning:
+    use an invalid entity to get a component from an entity
+    that doesn't own it results in undefined behavior.
+
+    if cp_id is not registered the result is undefined behavior.
+*/
+void* de_get(de_registry* r, de_entity e, de_cp_id cp_id);
+
+/*
+    returns the pointer to the given component id data for the entity
+
+    warning:
+    use an invalid entity to get a component from an entity
+    that doesn't own it results in undefined behavior.
+
+    if cp_id is not registered the result is undefined behavior.
+*/
+void* de_try_get(de_registry* r, de_entity e, de_cp_id cp_id);
+
+/*
+    iterates all the entities that are still in use.
+
+    the function pointer is invoked for each entity that is still in use.
+
+    this is a fairly slow operation and should not be used frequently.
+    however it's useful for iterating all the entities still in use,
+    regarding their components.
+
+    warning: the function is not optional, undefined behavior if fun is null.
+*/
+void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata);
+
+
+/**************** Implementation ****************/
+// #define DESTRAL_ECS_IMPL
+#ifdef DESTRAL_ECS_IMPL
+#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+
+const de_entity de_null = (de_entity)DE_ENTITY_ID_MASK;
+
+/* Returns the version part of the entity */
+de_entity_ver de_entity_version(de_entity e) { return (de_entity_ver) { .ver = e >> DE_ENTITY_SHIFT }; }
+/* Returns the id part of the entity */
+de_entity_id de_entity_identifier(de_entity e) { return (de_entity_id) { .id = e & DE_ENTITY_ID_MASK }; }
+/* Makes a de_entity from entity_id and entity_version */
+de_entity de_make_entity(de_entity_id id, de_entity_ver version) { return id.id | (version.ver << DE_ENTITY_SHIFT); }
+
+
+
+
 /* de_sparse constructor */
 de_sparse* de_sparse_init(de_sparse* s) {
     if (s) {
-        *s = (de_sparse) {0};
+        *s = (de_sparse){ 0 };
         s->sparse = 0;
         s->dense = 0;
     }
@@ -160,8 +346,8 @@ void de_sparse_delete(de_sparse* s) {
 }
 
 /*
-    returns true if the sparse_set contains the entity e 
-    
+    returns true if the sparse_set contains the entity e
+
     warning: passing entity that doesn't belong to the sparse set
     or the null entity results in undefined behavior.
 */
@@ -175,7 +361,7 @@ bool de_sparse_contains(de_sparse* s, de_entity e) {
 /*
     returns the index position of an entity in the sparse array to be used
     as the index in the dense array.
-    
+
     warning: attempting to get the index for an entity that doesn't belong
     to the sparse setresults in undefined behavior.
 */
@@ -197,19 +383,19 @@ void de_sparse_emplace(de_sparse* s, de_entity e) {
     const de_entity_id eid = de_entity_identifier(e);
     if (eid.id >= s->sparse_size) { // check if we need to realloc
         const size_t new_sparse_size = eid.id + 1;
-        s->sparse = realloc(s->sparse, new_sparse_size * sizeof *s->sparse);
+        s->sparse = realloc(s->sparse, new_sparse_size * sizeof * s->sparse);
         memset(s->sparse + s->sparse_size, de_null, (new_sparse_size - s->sparse_size) * sizeof * s->sparse);
         s->sparse_size = new_sparse_size;
     }
-    s->sparse[eid.id] =(de_entity)s->dense_size; // set this eid index to the last dense index (dense_size)
-    s->dense = realloc(s->dense, (s->dense_size + 1) * sizeof *s->dense);
+    s->sparse[eid.id] = (de_entity)s->dense_size; // set this eid index to the last dense index (dense_size)
+    s->dense = realloc(s->dense, (s->dense_size + 1) * sizeof * s->dense);
     s->dense[s->dense_size] = e;
     s->dense_size++;
 }
 
 /*
     Removes an entity from a sparse set.
-    
+
     returns the dense index where the entity was occupying before removing.
     warning: Attempting to remove an entity that doesn't belong to the sparse set
     results in undefined behavior.<br/>
@@ -231,48 +417,6 @@ size_t de_sparse_remove(de_sparse* s, de_entity e) {
 
     return pos;
 }
-
-
-/*
-    de_storage
-
-    handles the raw component data aligned with a de_sparse.
-    stores packed component data elements for each entity in the sparse set.
-
-    the packed component elements data is aligned always with the dense array from the sparse set.
-
-    adding/removing an entity to the storage will:
-        - add/remove from the sparse
-        - use the sparse_set dense array position to move the components data aligned.
-
-    Example:
-                          
-                  idx:    0    1    2
-    dense     content: [ e3,  e2,  e1]
-    cp_data   content: [e3c, e2c, e1c] contains component data for the entity in the corresponding index
-
-    If now we remove from the storage the entity e2:
-
-                  idx:    0    1    2
-    dense     content: [ e3,  e1]
-    cp_data   content: [e3c, e1c] contains component data for the entity in the corresponding index
-
-    note that the alignment to the index in the dense and in the cp_data is always preserved.
-
-    This allows fast iteration for each component and having the entities accessible aswell.
-    for (i = 0; i < dense_size; i++) {  // mental example, wrong syntax
-        de_entity e = dense[i];
-        void*   ecp = cp_data[i];
-    }
-    
-
-*/
-typedef struct de_storage {
-    void* cp_data; /*  packed component elements array. aligned with sparse->dense*/
-    size_t cp_data_size; /* number of elements in the cp_data array */
-    size_t cp_sizeof; /* sizeof for each cp_data element */
-    de_sparse sparse;
-} de_storage;
 
 /* initializes a de_storage, cp_size is the component data storage sizeof */
 de_storage* de_storage_init(de_storage* s, size_t cp_size) {
@@ -383,23 +527,7 @@ bool de_storage_contains(de_storage* s, de_entity e) {
     return de_sparse_contains(&s->sparse, e);
 }
 
-/*  de_registry
-    
-    is the global context that holds each components and entities.
 
-    FIX (dani) todo list:
-    - entity creation/destruction reciclying ids (DONE)
-    - hability to create/destroy sparse sets of each component type. (DONE)
-    - add/remove components to entities (DONE)
-    - iteration of components/entites in a view
-
-*/
-typedef struct de_registry {
-    de_storage** storages; /* DE_COMPONENT_MAX_ID array preallocated in the begining */
-    size_t entities_size; 
-    de_entity* entities; /* contains all the created entities */
-    de_entity_id available_id; /* first index in the list to recycle */
-} de_registry;
 
 /* initializes a de_registry */
 de_registry* de_init(de_registry* r) {
@@ -516,9 +644,6 @@ de_entity de_create(de_registry* r) {
         return _de_recycle_entity(r);
     }
 }
-
-
-
 
 
 /*
@@ -705,71 +830,7 @@ void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* 
 
 
 
-///// sample program
-typedef struct {
-    int x;
-    int y;
-    int z;
-} transform;
 
-typedef struct {
-    int w;
-} test_cp1;
-
-
-void each_e(de_registry* r, de_entity e, void* udata) {
-    printf("entity %u\n", de_entity_identifier(e).id);
-}
-
-
-
-
-
-int main() {
-
-    de_registry *r = de_new();
-    de_register_component(r, 0, sizeof(transform));
-    de_register_component(r, 1, sizeof(test_cp1));
-
-    de_entity e1 = de_create(r);
-    de_destroy(r, e1);
-    e1 = de_create(r);
-    de_entity e2 = de_create(r);
-    de_entity e3 = de_create(r);
-
-    transform* c1 = de_emplace(r, e1, 0);
-    c1->x = 1; c1->y = 2; c1->z = 3;
-    transform* c3 = de_emplace(r, e3, 0);
-    c3->x = 7; c3->y = 8; c3->z = 9;
-    transform* c2 = de_emplace(r, e2, 0);
-    c2->x = 4; c2->y = 5; c2->z = 6;
-
-    test_cp1* c4 = de_emplace(r, e1, 1);
-    c4->w = 69;
-
-    //de_remove_all(r, e1);
-    // fast iteration using packed arrays, for the component id 0.
-    // FIX (dani) make a good interface to this
-    for (size_t i = 0; i < r->storages[0]->cp_data_size; i++) {
-        de_entity e = r->storages[0]->sparse.dense[i];
-        transform* c = (transform*) &((char*)r->storages[0]->cp_data)[r->storages[0]->cp_sizeof * i];
-        printf("test_cp  entity: %d => x=%d, y=%d, z=%d\n", de_entity_identifier(e).id, c->x, c->y, c->z);
-    }
-
-    // fast iteration using packed arrays, for the component id 1.
-    for (size_t i = 0; i < r->storages[1]->cp_data_size; i++) {
-        de_entity e = r->storages[1]->sparse.dense[i];
-        test_cp1* c = (test_cp1*)&((char*)r->storages[1]->cp_data)[r->storages[1]->cp_sizeof * i];
-        printf("test_cp1  entity: %d => w=%d\n", de_entity_identifier(e).id, c->w);
-    }
-
-    // slow traversal for each entity in the registry
-    de_each(r, each_e, 0);
-
-
-    de_delete(r);
-	return EXIT_SUCCESS;
-}
 
 //// encapsulate type information needed for the registry
 //typedef struct de_component_type_info {
@@ -791,3 +852,9 @@ int main() {
 //de_entity e = de_create(r);
 //position* tr = de_emplace(r, e, cp_position);
 //rotation* rot = de_emplace(r, e, cp_rotation);
+
+
+
+
+#endif // DESTRAL_ECS_IMPL
+#endif // DESTRAL_ECS_H
