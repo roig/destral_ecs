@@ -370,6 +370,19 @@ void* de_storage_try_get(de_storage* s, de_entity e) {
     return de_sparse_contains(&s->sparse, e) ? de_storage_get(s, e) : 0;
 }
 
+
+/*
+    returns true if the storage contains the entity e
+
+    warning: passing entity that doesn't belong to the storage
+    or the null entity results in undefined behavior.
+*/
+bool de_storage_contains(de_storage* s, de_entity e) {
+    assert(s);
+    assert(e != de_null);
+    return de_sparse_contains(&s->sparse, e);
+}
+
 /*  de_registry
     
     is the global context that holds each components and entities.
@@ -504,6 +517,20 @@ de_entity de_create(de_registry* r) {
     }
 }
 
+
+
+
+
+/*
+    returns the de_storage pointer for a given component id.
+    if the component id is not registered it will return a null pointer.
+
+*/
+de_storage* de_assure(de_registry* r, de_cp_id cp_id) {
+    assert(r);
+    return r->storages[cp_id] ? r->storages[cp_id] : 0;
+}
+
 /*
     removes all the components from an entity and makes it orphaned (no components in it)
     the entity remains alive and valid without components.
@@ -524,9 +551,15 @@ void de_remove_all(de_registry* r, de_entity e) {
     }
 }
 
-void de_remove() {
-    // FIX (dani) 
+/*
+    removes the given component from the entity.
+    
+    warning: attempting to use invalid entity results in undefined behavior
+*/
+void de_remove(de_registry* r, de_entity e, de_cp_id cp_id) {
     assert(false);
+    assert(de_valid(r, e));
+    de_storage_remove(de_assure(r, cp_id), e);
 }
 
 
@@ -552,17 +585,16 @@ void de_destroy(de_registry* r, de_entity e) {
     _de_release_entity(r, e, new_version);
 }
 
+/*
+    checks if the entity has the given component
 
-
-
-/* 
-    returns the de_storage pointer for a given component id.
-    if the component id is not registered it will return a null pointer.
-
+    warning: using an invalid entity results in undefined behavior.
 */
-de_storage* de_assure(de_registry* r, de_cp_id cp_id) {
+bool de_has(de_registry* r, de_entity e, de_cp_id cp_id) {
     assert(r);
-    return r->storages[cp_id] ? r->storages[cp_id]: 0;
+    assert(de_valid(r, e));
+    assert(de_assure(r, cp_id));
+    return de_storage_contains(de_assure(r, cp_id), e);
 }
 
 
@@ -673,12 +705,12 @@ void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* 
 
 
 
-///// smaple program
+///// sample program
 typedef struct {
     int x;
     int y;
     int z;
-} test_cp;
+} transform;
 
 typedef struct {
     int w;
@@ -689,9 +721,14 @@ void each_e(de_registry* r, de_entity e, void* udata) {
     printf("entity %u\n", de_entity_identifier(e).id);
 }
 
+
+
+
+
 int main() {
+
     de_registry *r = de_new();
-    de_register_component(r, 0, sizeof(test_cp));
+    de_register_component(r, 0, sizeof(transform));
     de_register_component(r, 1, sizeof(test_cp1));
 
     de_entity e1 = de_create(r);
@@ -700,11 +737,11 @@ int main() {
     de_entity e2 = de_create(r);
     de_entity e3 = de_create(r);
 
-    test_cp* c1 = de_emplace(r, e1, 0);
+    transform* c1 = de_emplace(r, e1, 0);
     c1->x = 1; c1->y = 2; c1->z = 3;
-    test_cp* c3 = de_emplace(r, e3, 0);
+    transform* c3 = de_emplace(r, e3, 0);
     c3->x = 7; c3->y = 8; c3->z = 9;
-    test_cp* c2 = de_emplace(r, e2, 0);
+    transform* c2 = de_emplace(r, e2, 0);
     c2->x = 4; c2->y = 5; c2->z = 6;
 
     test_cp1* c4 = de_emplace(r, e1, 1);
@@ -715,14 +752,14 @@ int main() {
     // FIX (dani) make a good interface to this
     for (size_t i = 0; i < r->storages[0]->cp_data_size; i++) {
         de_entity e = r->storages[0]->sparse.dense[i];
-        test_cp* c = (test_cp*) &((char*)r->storages[0]->cp_data)[r->storages[0]->cp_sizeof * i];
+        transform* c = (transform*) &((char*)r->storages[0]->cp_data)[r->storages[0]->cp_sizeof * i];
         printf("test_cp  entity: %d => x=%d, y=%d, z=%d\n", de_entity_identifier(e).id, c->x, c->y, c->z);
     }
 
     // fast iteration using packed arrays, for the component id 1.
     for (size_t i = 0; i < r->storages[1]->cp_data_size; i++) {
         de_entity e = r->storages[1]->sparse.dense[i];
-        test_cp1* c = (test_cp*)&((char*)r->storages[1]->cp_data)[r->storages[1]->cp_sizeof * i];
+        test_cp1* c = (test_cp1*)&((char*)r->storages[1]->cp_data)[r->storages[1]->cp_sizeof * i];
         printf("test_cp1  entity: %d => w=%d\n", de_entity_identifier(e).id, c->w);
     }
 
@@ -734,3 +771,23 @@ int main() {
 	return EXIT_SUCCESS;
 }
 
+//// encapsulate type information needed for the registry
+//typedef struct de_component_type_info {
+//    size_t cp_id; // component unique id
+//    size_t cp_sizeof; // component sizeof
+//    // maybe here we can add function callbacks for initialization and deinitialization of the component
+//}de_cp_type;
+//
+//typedef struct position { int x; int y; } position;
+//typedef struct rotation { float rotation; } rotation;
+//
+//// here you define each component you will use
+//de_cp_type cp_position = { .cp_id = 0, .cp_sizeof = sizeof(position) };
+//de_cp_type cp_rotation = { .cp_id = 1, .cp_sizeof = sizeof(rotation) };
+//
+//
+//// and use it like this (no registration needed)
+//de_registry* r = de_new();
+//de_entity e = de_create(r);
+//position* tr = de_emplace(r, e, cp_position);
+//rotation* rot = de_emplace(r, e, cp_rotation);
