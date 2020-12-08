@@ -4,7 +4,7 @@ ENTT like implementation of ECS in C
 
 # Basic usage:
 In ONE of your source files, do this:
-```
+```cpp
 #define DESTRAL_ECS_IMPL
 #include "destral_ecs.h"
 ```
@@ -13,7 +13,7 @@ and that's it! use the header in other files as a normal header
 
 # Example:
 
-```
+```cpp
 int main() {
     de_registry* r = de_new();
 
