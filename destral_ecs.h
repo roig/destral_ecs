@@ -942,6 +942,29 @@ static inline bool de_view_entity_contained(de_view* v, de_entity e) {
     return true;
 }
 
+void* de_view_get(de_view* v, size_t pool_index) {
+    assert(v);
+    assert(pool_index < DE_MAX_VIEW_COMPONENTS);
+    assert(de_view_valid(v));
+    return de_storage_get(v->all_pools[pool_index], v->current_entity);
+}
+
+void de_view_next(de_view* v) {
+    assert(v);
+    assert(de_view_valid(v));
+    // find the next contained entity that is inside all pools
+    do {
+        if (v->current_entity_index) {
+            v->current_entity_index--;
+            v->current_entity = v->pool->sparse.dense[v->current_entity_index];
+        }
+        else {
+            v->current_entity = de_null;
+        }
+    } while ((v->current_entity != de_null) && !de_view_entity_contained(v, v->current_entity));
+}
+
+
 de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
     assert(r);
     assert(cp_count < DE_MAX_VIEW_COMPONENTS);
@@ -963,11 +986,14 @@ de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
         }
     }
 
-    // now we must find if this entity is all the pools
-    assert(v.pool);
-    if (v.pool->cp_data_size != 0) {
+    if (v.pool && v.pool->cp_data_size != 0) {
         v.current_entity_index = v.pool->cp_data_size - 1;
         v.current_entity = v.pool->sparse.dense[v.current_entity_index];
+        // now check if this entity is contained in all the pools
+        if (!de_view_entity_contained(&v, v.current_entity)) {
+            // if not, search the next entity contained
+            de_view_next(&v);
+        }
     } else {
         v.current_entity_index = 0;
         v.current_entity = de_null;
@@ -976,26 +1002,6 @@ de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
 }
 
 
-void* de_view_get(de_view* v, size_t pool_index) {
-    assert(v);
-    assert(pool_index < DE_MAX_VIEW_COMPONENTS);
-    assert(de_view_valid(v));
-    return de_storage_get(v->all_pools[pool_index], v->current_entity);
-}
-
-void de_view_next(de_view* v) {
-    assert(v);
-    assert(de_view_valid(v));
-    // find the next contained entity that is inside all pools
-    do {
-        if (v->current_entity_index) {
-            v->current_entity_index--;
-            v->current_entity = v->pool->sparse.dense[v->current_entity_index];
-        } else {
-            v->current_entity = de_null;
-        }
-    } while ((v->current_entity != de_null) && !de_view_entity_contained(v, v->current_entity));
-}
 
 
 
