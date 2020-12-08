@@ -1,8 +1,8 @@
-# destral_ecs
+# Destral_ecs
 ENTT like implementation of ECS in C
 
 
-# basic usage:
+# Basic usage:
 In ONE of your source files, do this:
 ```
 #define DESTRAL_ECS_IMPL
@@ -11,7 +11,7 @@ In ONE of your source files, do this:
 and that's it! use the header in other files as a normal header
 
 
-# example:
+# Example:
 
 ```
 int main() {
