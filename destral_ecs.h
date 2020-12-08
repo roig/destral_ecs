@@ -13,7 +13,7 @@
 */
 #include <stdint.h>
 #include <stdbool.h>
-
+#include <assert.h>
 
 /*  de_cp_id:
 
@@ -161,6 +161,17 @@ typedef struct de_storage {
     de_sparse sparse;
 } de_storage;
 
+/*
+    returns the data pointer associated with an index in the array.
+
+    warning: attempting to use an invalid index results in undefined behavior.
+*/
+inline void* de_storage_get_by_index(de_storage* s, size_t index) {
+    assert(s);
+    assert(index < s->cp_data_size);
+    return &((char*)s->cp_data)[index * sizeof(char) * s->cp_sizeof];
+}
+
 
 /*  de_registry
 
@@ -299,8 +310,80 @@ void* de_try_get(de_registry* r, de_entity e, de_cp_id cp_id);
 void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata);
 
 
+typedef struct de_view_single {
+    de_storage* pool;
+    size_t current_entity_index;
+    bool has_ended;
+} de_view_single;
+
+de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
+
+inline bool de_view_single_valid(de_view_single* v) {
+    return !v->has_ended;
+}
+
+inline de_entity de_view_single_entity(de_view_single* v) {
+    return v->pool->sparse.dense[v->current_entity_index];
+}
+
+inline void* de_view_single_get(de_view_single* v) {
+    return de_storage_get_by_index(v->pool, v->current_entity_index);
+}
+
+inline void de_view_single_next(de_view_single* v) {
+    if (v->current_entity_index) {
+        v->current_entity_index--;
+    }
+    else {
+        v->has_ended = true;
+    }
+}
+
+
+//de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
+//bool de_view_single_valid(de_view_single* v);
+//de_entity de_view_single_entity(de_view_single* v);
+//void* de_view_single_get(de_view_single* v);
+//void de_view_single_next(de_view_single* v);
+
+#define DE_MAX_VIEW_COMPONENTS (16)
+typedef struct de_view {
+    de_storage* all_pools[DE_MAX_VIEW_COMPONENTS];
+    size_t pool_count;
+    de_storage* pool;
+    size_t current_entity_index;
+    de_entity current_entity;
+} de_view;
+
+
+de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id); 
+
+inline bool de_view_valid(de_view* v) {
+    assert(v);
+    return v->current_entity != de_null;
+}
+
+inline de_entity de_view_entity(de_view* v) {
+    assert(v);
+    assert(de_view_valid(v));
+    return v->pool->sparse.dense[v->current_entity_index];
+}
+
+void* de_view_get(de_view* v, size_t pool_index);
+void de_view_next(de_view* v);
+
+//de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
+//bool de_view_single_valid(de_view_single* v);
+//de_entity de_view_single_entity(de_view_single* v);
+//void* de_view_single_get(de_view_single* v);
+//void de_view_single_next(de_view_single* v);
+
+
+
+
+
 /**************** Implementation ****************/
-// #define DESTRAL_ECS_IMPL
+//#define DESTRAL_ECS_IMPL
 #ifdef DESTRAL_ECS_IMPL
 #include <assert.h>
 #include <string.h>
@@ -368,7 +451,7 @@ bool de_sparse_contains(de_sparse* s, de_entity e) {
 size_t de_sparse_index(de_sparse* s, de_entity e) {
     assert(s);
     assert(de_sparse_contains(s, e));
-    return s->sparse[e];
+    return s->sparse[de_entity_identifier(e).id];
 }
 
 /*
@@ -492,6 +575,8 @@ void de_storage_remove(de_storage* s, de_entity e) {
     s->cp_data_size--;
 }
 
+
+
 /*
     returns the data pointer associated with an entity
 
@@ -501,7 +586,7 @@ void de_storage_remove(de_storage* s, de_entity e) {
 void* de_storage_get(de_storage* s, de_entity e) {
     assert(s);
     assert(e != de_null);
-    return &((char*)s->cp_data)[de_sparse_index(&s->sparse, e) * sizeof(char) * s->cp_sizeof ];
+    return de_storage_get_by_index(s, de_sparse_index(&s->sparse, e));
 }
 
 /*
@@ -804,6 +889,9 @@ void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* 
     }
 }
 
+
+
+
 ///////// VIEWS
 /* 
  we can acces each component of an entity using de_get or try_get but this is not cache friendly.
@@ -827,7 +915,87 @@ void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* 
         .... your code...
     }
 */
+de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id) {
+    assert(r);
+    de_view_single v = { 0 };
+    v.pool = de_assure(r, cp_id);
+    assert(v.pool);
 
+    if (v.pool->cp_data_size != 0) {
+        v.current_entity_index = v.pool->cp_data_size - 1;
+        v.has_ended = false;
+    }
+    else {
+        v.current_entity_index = 0;
+        v.has_ended = true;
+    }
+    return v;
+}
+
+static inline bool de_view_entity_contained(de_view* v, de_entity e) {
+    assert(v);
+    assert(de_view_valid(v));
+
+    for (size_t pool_id = 0; pool_id < v->pool_count; pool_id++) {
+        if (!de_storage_contains(v->all_pools[pool_id], e)) return false;
+    }
+    return true;
+}
+
+de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
+    assert(r);
+    assert(cp_count < DE_MAX_VIEW_COMPONENTS);
+    assert(cp_id);
+
+    de_view v = { 0 };
+    v.pool_count = cp_count;
+    // setup pools pointer and find the smallest pool that we 
+    // use for iterations
+    for (size_t i = 0; i < cp_count; i++) {
+        v.all_pools[i] = de_assure(r, cp_id[i]);
+        assert(v.all_pools[i]);
+        if (!v.pool) {
+            v.pool = v.all_pools[i];
+        } else {
+            if (v.all_pools[i]->cp_data_size < v.pool->cp_data_size) {
+                v.pool = v.all_pools[i];
+            }
+        }
+    }
+
+    // now we must find if this entity is all the pools
+    assert(v.pool);
+    if (v.pool->cp_data_size != 0) {
+        v.current_entity_index = v.pool->cp_data_size - 1;
+        v.current_entity = v.pool->sparse.dense[v.current_entity_index];
+    } else {
+        v.current_entity_index = 0;
+        v.current_entity = de_null;
+    }
+    return v;
+}
+
+
+void* de_view_get(de_view* v, size_t pool_index) {
+    assert(v);
+    assert(pool_index < DE_MAX_VIEW_COMPONENTS);
+    assert(de_view_valid(v));
+    return de_storage_get(v->all_pools[pool_index], v->current_entity);
+}
+
+void de_view_next(de_view* v) {
+    assert(v);
+    assert(de_view_valid(v));
+    // find the next contained entity that is inside all pools
+    do {
+        if (v->current_entity_index) {
+            v->current_entity_index--;
+            v->current_entity = v->pool->sparse.dense[v->current_entity_index];
+        } else {
+            v->current_entity = de_null;
+        }
+    } while ((v->current_entity != de_null) && !de_view_entity_contained(v, v->current_entity));
+}
 
 
 
