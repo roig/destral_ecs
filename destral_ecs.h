@@ -357,18 +357,8 @@ typedef struct de_view {
 
 
 de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id); 
-
-inline bool de_view_valid(de_view* v) {
-    assert(v);
-    return v->current_entity != de_null;
-}
-
-inline de_entity de_view_entity(de_view* v) {
-    assert(v);
-    assert(de_view_valid(v));
-    return v->pool->sparse.dense[v->current_entity_index];
-}
-
+bool de_view_valid(de_view* v);
+de_entity de_view_entity(de_view* v);
 void* de_view_get(de_view* v, size_t pool_index);
 void de_view_next(de_view* v);
 
@@ -1001,7 +991,16 @@ de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
     return v;
 }
 
+bool de_view_valid(de_view* v) {
+    assert(v);
+    return v->current_entity != de_null;
+}
 
+de_entity de_view_entity(de_view* v) {
+    assert(v);
+    assert(de_view_valid(v));
+    return v->pool->sparse.dense[v->current_entity_index];
+}
 
 
 

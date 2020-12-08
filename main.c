@@ -26,12 +26,13 @@ int main() {
     e1 = de_create(r);
     de_entity e2 = de_create(r);
     de_entity e3 = de_create(r);
-
-    transform* c1 = de_emplace(r, e1, 0);  c1->x = 1; c1->y = 2; c1->z = 3;
-    transform* c3 = de_emplace(r, e3, 0);  c3->x = 7; c3->y = 8; c3->z = 9;
-    transform* c2 = de_emplace(r, e2, 0);  c2->x = 4; c2->y = 5; c2->z = 6;
-    
+   
+    transform* c1 = de_emplace(r, e1, 0);  c1->x = 40; c1->y = 50; c1->z = 60;
     test_cp1* c4 = de_emplace(r, e1, 1);  c4->w = 69;
+    transform* c2 = de_emplace(r, e2, 0);  c2->x = 4; c2->y = 5; c2->z = 6;
+    transform* c3 = de_emplace(r, e3, 0);  c3->x = 41; c3->y = 150; c3->z = 160;
+
+    
 
     puts("single view transform component");
     for (de_view_single v = de_create_view_single(r, 0); de_view_single_valid(&v); de_view_single_next(&v)) {
@@ -50,7 +51,6 @@ int main() {
 
     puts("\nmulti view entities with (transform AND test_cp1) components");
     for (de_view v = de_create_view(r, 2, (de_cp_id[2]){ 0, 1 }); de_view_valid(&v); de_view_next(&v)) {
-        // de_entity e = de_view_single_entity(&v);
         de_entity e = de_view_entity(&v);
         transform* tr = de_view_get(&v, 0);
         test_cp1* tc = de_view_get(&v, 1);
