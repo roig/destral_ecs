@@ -14,6 +14,17 @@ and that's it! use the header in other files as a normal header
 # Example:
 
 ```cpp
+typedef struct transform {
+    int x;
+    int y;
+    int z;
+} transform;
+
+typedef struct velocity {
+    float v;
+} velocity;
+
+
 int main() {
     de_registry* r = de_new();
 
