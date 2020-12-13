@@ -1,6 +1,7 @@
 #ifndef DESTRAL_ECS_H
 #define DESTRAL_ECS_H
 
+
 /*
     destral_ecs.h -- simple ECS system
 
@@ -11,27 +12,21 @@
     FIX (dani) todo proper instructions
 
 */
+
 #include <stdint.h>
 #include <stdbool.h>
-#include <assert.h>
 
-/*  de_cp_id:
+/*  de_cp_type:
 
-    type identifier for a component.
-
-    component storages are preallocated in a array size of DE_COMPONENT_MAX_ID.
-    this allows fast lookup for storage but will occupy more memory.
-
-    you will normally not need more than UINT16_MAX components..
-    If you need more, beware that changing to uint32_t the preallocation
-    cost will be huge...
+    type identifier information for a component.
 */
+typedef struct de_cp_type {
+    size_t cp_id; // component unique id
+    size_t cp_sizeof; // component sizeof
+    char* name; // component name
+} de_cp_type;
 
-/* typedef for the components id */
-typedef uint16_t de_cp_id;
-
-/* max number of components id allowed */
-#define DE_COMPONENT_MAX_ID (UINT16_MAX)
+#define DE_MAKE_CP_TYPE(TypeId, TypeName) { .cp_id = TypeId, .cp_sizeof = sizeof(TypeName) , .name = #TypeName }
 
 
 /*  de_entity:
@@ -155,37 +150,23 @@ typedef struct de_sparse {
 
 */
 typedef struct de_storage {
+    size_t cp_id; /* component id for this storage */
     void* cp_data; /*  packed component elements array. aligned with sparse->dense*/
     size_t cp_data_size; /* number of elements in the cp_data array */
     size_t cp_sizeof; /* sizeof for each cp_data element */
     de_sparse sparse;
 } de_storage;
 
-/*
-    returns the data pointer associated with an index in the array.
-
-    warning: attempting to use an invalid index results in undefined behavior.
-*/
-inline void* de_storage_get_by_index(de_storage* s, size_t index) {
-    assert(s);
-    assert(index < s->cp_data_size);
-    return &((char*)s->cp_data)[index * sizeof(char) * s->cp_sizeof];
-}
 
 
 /*  de_registry
 
-    is the global context that holds each components and entities.
-
-    FIX (dani) todo list:
-    - entity creation/destruction reciclying ids (DONE)
-    - hability to create/destroy sparse sets of each component type. (DONE)
-    - add/remove components to entities (DONE)
-    - iteration of components/entites in a view
-
+    Is the global context that holds each storage for each component types
+    and the entities.
 */
 typedef struct de_registry {
-    de_storage** storages; /* DE_COMPONENT_MAX_ID array preallocated in the begining */
+    de_storage** storages; /* array to pointers to storage */
+    size_t storages_size; /* size of the storages array */
     size_t entities_size;
     de_entity* entities; /* contains all the created entities */
     de_entity_id available_id; /* first index in the list to recycle */
@@ -204,150 +185,160 @@ de_registry* de_new(); /* allocates and initializes a de_registry */
 void de_deinit(de_registry* r); /* deinitializes a de_registry */
 void de_delete(de_registry* r); /* deinitializes and deletes a registry */
 
-/* 
-    returns true if the component is registered correctly.
-    returns false if the component can't be registered (another one exists)
-*/
-bool de_register_component(de_registry* r, uint16_t cp_id, size_t cp_size);
-
 /*
-    checks if an entity identifier is a valid one.
+    Checks if an entity identifier is a valid one.
     the entity e can be a valid or an invalid one.
     returns true if the identifier is valid, false otherwise
 */
 bool de_valid(de_registry* r, de_entity e);
 
 /*
-    creates a new entity and returns it
-    the identifier can be:
-     - new identifier in case no entities have been previously destroyed
-     - recycled identifier with an update version.
+    Creates a new entity and returns it
+    The identifier can be:
+     - New identifier in case no entities have been previously destroyed
+     - Recycled identifier with an update version.
 */
 de_entity de_create(de_registry* r);
 
 /*
-    removes all the components from an entity and makes it orphaned (no components in it)
+    Removes all the components from an entity and makes it orphaned (no components in it)
     the entity remains alive and valid without components.
 
-    warning: attempting to use invalid entity results in undefined behavior
-
+    Warning: attempting to use invalid entity results in undefined behavior
 */
 void de_remove_all(de_registry* r, de_entity e);
 
 /*
-    removes the given component from the entity.
+    Removes the given component from the entity.
 
-    warning: attempting to use invalid entity results in undefined behavior
+    Warning: attempting to use invalid entity results in undefined behavior
 */
-void de_remove(de_registry* r, de_entity e, de_cp_id cp_id);
+void de_remove(de_registry* r, de_entity e, de_cp_type cp_type);
 
 /*
-    destroys an entity.
+    Destroys an entity.
 
-    when an entity is destroyed, its version is updated and the identifier
+    When an entity is destroyed, its version is updated and the identifier
     can be recycled when needed.
 
-    warning:
+    Warning:
     Undefined behavior if the entity is not valid.
 */
 void de_destroy(de_registry* r, de_entity e);
 
 /*
-    checks if the entity has the given component
+    Checks if the entity has the given component
 
-    warning: using an invalid entity results in undefined behavior.
+    Warning: using an invalid entity results in undefined behavior.
 */
-bool de_has(de_registry* r, de_entity e, de_cp_id cp_id);
+bool de_has(de_registry* r, de_entity e, de_cp_type cp_type);
 
 /*
-    assigns a given component id to an entity and returns it.
+    Assigns a given component type to an entity and returns it.
 
-    a new memory instance of component id cp_id is allocated for the
+    A new memory instance of component type cp_type is allocated for the
     entity e and returned.
 
-    note: the memory returned is only allocated not initialized.
+    Note: the memory returned is only allocated not initialized.
 
-    warning: use an invalid entity or assigning a component to a valid
+    Warning: use an invalid entity or assigning a component to a valid
     entity that currently has this component instance id results in
     undefined behavior.
-    if cp_id is not registered the result is undefined behavior.
 */
-void* de_emplace(de_registry* r, de_entity e, de_cp_id cp_id);
+void* de_emplace(de_registry* r, de_entity e, de_cp_type cp_type);
 
 /*
-    returns the pointer to the given component id data for the entity
-
-    warning:
-    use an invalid entity to get a component from an entity
+    Returns the pointer to the given component type data for the entity
+    
+    Warning: Using an invalid entity or get a component from an entity
     that doesn't own it results in undefined behavior.
 
-    if cp_id is not registered the result is undefined behavior.
+    Note: This is the fastest way of retrieveing component data but
+    has no checks. This means that you are 100% sure that the entity e 
+    has the component emplaced. Use de_try_get to check if you want checks
 */
-void* de_get(de_registry* r, de_entity e, de_cp_id cp_id);
+void* de_get(de_registry* r, de_entity e, de_cp_type cp_type);
 
 /*
-    returns the pointer to the given component id data for the entity
+    Returns the pointer to the given component type data for the entity
+    or nullptr if the entity doesn't have this component.
 
-    warning:
-    use an invalid entity to get a component from an entity
-    that doesn't own it results in undefined behavior.
-
-    if cp_id is not registered the result is undefined behavior.
+    Warning: Using an invalid entity results in undefined behavior.
+    Note: This is safer but slower than de_get.
 */
-void* de_try_get(de_registry* r, de_entity e, de_cp_id cp_id);
+void* de_try_get(de_registry* r, de_entity e, de_cp_type cp_type);
 
 /*
-    iterates all the entities that are still in use.
+    Iterates all the entities that are still in use and calls
+    the function pointer for each one.
 
-    the function pointer is invoked for each entity that is still in use.
-
-    this is a fairly slow operation and should not be used frequently.
-    however it's useful for iterating all the entities still in use,
+    This is a fairly slow operation and should not be used frequently.
+    However it's useful for iterating all the entities still in use,
     regarding their components.
-
-    warning: the function is not optional, undefined behavior if fun is null.
 */
 void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata);
 
+/*
+    Returns true if an entity has no components assigned, false otherwise.
 
+    Warning: Using an invalid entity results in undefined behavior.
+*/
+bool de_orphan(de_registry* r, de_entity e);
+
+/*
+    Iterates all the entities that are orphans (no components in it) and calls
+    the function pointer for each one.
+
+    This is a fairly slow operation and should not be used frequently.
+    However it's useful for iterating all the entities still in use,
+    regarding their components.
+*/
+void de_orphans_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata);
+
+
+/*
+    de_view_single
+
+    Use this view to iterate entities that have the component type specified.
+*/
 typedef struct de_view_single {
     de_storage* pool;
     size_t current_entity_index;
-    bool has_ended;
+    de_entity entity;
 } de_view_single;
 
-de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
+de_view_single de_create_view_single(de_registry* r, de_cp_type cp_type);
+bool de_view_single_valid(de_view_single* v);
+de_entity de_view_single_entity(de_view_single* v);
+void* de_view_single_get(de_view_single* v);
+void de_view_single_next(de_view_single* v);
 
-inline bool de_view_single_valid(de_view_single* v) {
-    return !v->has_ended;
-}
 
-inline de_entity de_view_single_entity(de_view_single* v) {
-    return v->pool->sparse.dense[v->current_entity_index];
-}
 
-inline void* de_view_single_get(de_view_single* v) {
-    return de_storage_get_by_index(v->pool, v->current_entity_index);
-}
+/*
+    de_view
 
-inline void de_view_single_next(de_view_single* v) {
-    if (v->current_entity_index) {
-        v->current_entity_index--;
+    Use this view to iterate entities that have multiple component types specified.
+
+    Note: You don't need to destroy the view because it doesn't allocate and it
+    is not recommended that you save a view. Just use de_create_view each time.
+    It's a "cheap" operation.
+
+    Example usage with two components:
+
+    for (de_view v = de_create_view(r, 2, (de_cp_type[2]) {transform_type, velocity_type }); de_view_valid(&v); de_view_next(&v)) {
+        de_entity e = de_view_entity(&v);
+        transform* tr = de_view_get(&v, transform_type);
+        velocity* tc = de_view_get(&v, velocity_type);
+        printf("transform  entity: %d => x=%d, y=%d, z=%d\n", de_entity_identifier(e).id, tr->x, tr->y, tr->z);
+        printf("velocity  entity: %d => w=%f\n", de_entity_identifier(e).id, tc->v);
     }
-    else {
-        v->has_ended = true;
-    }
-}
 
-
-//de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
-//bool de_view_single_valid(de_view_single* v);
-//de_entity de_view_single_entity(de_view_single* v);
-//void* de_view_single_get(de_view_single* v);
-//void de_view_single_next(de_view_single* v);
-
-#define DE_MAX_VIEW_COMPONENTS (16)
+*/
 typedef struct de_view {
+    #define DE_MAX_VIEW_COMPONENTS (16)
+    /* value is the component id, index is where is located in the all_pools array */
+    size_t to_pool_index[DE_MAX_VIEW_COMPONENTS];
     de_storage* all_pools[DE_MAX_VIEW_COMPONENTS];
     size_t pool_count;
     de_storage* pool;
@@ -356,21 +347,12 @@ typedef struct de_view {
 } de_view;
 
 
-de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id); 
+de_view de_create_view(de_registry* r, size_t cp_count, de_cp_type* cp_types);
 bool de_view_valid(de_view* v);
 de_entity de_view_entity(de_view* v);
-void* de_view_get(de_view* v, size_t pool_index);
+void* de_view_get(de_view* v, de_cp_type cp_type);
+void* de_view_get_by_index(de_view* v, size_t pool_index);
 void de_view_next(de_view* v);
-
-//de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id);
-//bool de_view_single_valid(de_view_single* v);
-//de_entity de_view_single_entity(de_view_single* v);
-//void* de_view_single_get(de_view_single* v);
-//void de_view_single_next(de_view_single* v);
-
-
-
-
 
 /**************** Implementation ****************/
 //#define DESTRAL_ECS_IMPL
@@ -388,11 +370,9 @@ de_entity_id de_entity_identifier(de_entity e) { return (de_entity_id) { .id = e
 /* Makes a de_entity from entity_id and entity_version */
 de_entity de_make_entity(de_entity_id id, de_entity_ver version) { return id.id | (version.ver << DE_ENTITY_SHIFT); }
 
+// SPARSE SET
 
-
-
-/* de_sparse constructor */
-de_sparse* de_sparse_init(de_sparse* s) {
+static de_sparse* de_sparse_init(de_sparse* s) {
     if (s) {
         *s = (de_sparse){ 0 };
         s->sparse = 0;
@@ -401,56 +381,36 @@ de_sparse* de_sparse_init(de_sparse* s) {
     return s;
 }
 
-de_sparse* de_sparse_new() {
+static de_sparse* de_sparse_new() {
     return de_sparse_init(malloc(sizeof(de_sparse)));
 }
 
-/* de_sparse destructor */
-void de_sparse_destroy(de_sparse* s) {
+static void de_sparse_destroy(de_sparse* s) {
     if (s) {
         free(s->sparse);
         free(s->dense);
     }
 }
 
-void de_sparse_delete(de_sparse* s) {
+static void de_sparse_delete(de_sparse* s) {
     de_sparse_destroy(s);
     free(s);
 }
 
-/*
-    returns true if the sparse_set contains the entity e
-
-    warning: passing entity that doesn't belong to the sparse set
-    or the null entity results in undefined behavior.
-*/
-bool de_sparse_contains(de_sparse* s, de_entity e) {
+static bool de_sparse_contains(de_sparse* s, de_entity e) {
     assert(s);
     assert(e != de_null);
     const de_entity_id eid = de_entity_identifier(e);
     return (eid.id < s->sparse_size) && (s->sparse[eid.id] != de_null);
 }
 
-/*
-    returns the index position of an entity in the sparse array to be used
-    as the index in the dense array.
-
-    warning: attempting to get the index for an entity that doesn't belong
-    to the sparse setresults in undefined behavior.
-*/
-size_t de_sparse_index(de_sparse* s, de_entity e) {
+static size_t de_sparse_index(de_sparse* s, de_entity e) {
     assert(s);
     assert(de_sparse_contains(s, e));
     return s->sparse[de_entity_identifier(e).id];
 }
 
-/*
-    assigns an entity to the sparse set.
-
-    warning: attempting to assign an entity that already belongs to the sparse set
-    or the de_null entity results in undefined behavior.
-*/
-void de_sparse_emplace(de_sparse* s, de_entity e) {
+static void de_sparse_emplace(de_sparse* s, de_entity e) {
     assert(s);
     assert(e != de_null);
     const de_entity_id eid = de_entity_identifier(e);
@@ -466,15 +426,7 @@ void de_sparse_emplace(de_sparse* s, de_entity e) {
     s->dense_size++;
 }
 
-/*
-    Removes an entity from a sparse set.
-
-    returns the dense index where the entity was occupying before removing.
-    warning: Attempting to remove an entity that doesn't belong to the sparse set
-    results in undefined behavior.<br/>
-
-*/
-size_t de_sparse_remove(de_sparse* s, de_entity e) {
+static size_t de_sparse_remove(de_sparse* s, de_entity e) {
     assert(s);
     assert(de_sparse_contains(s, e));
 
@@ -491,44 +443,35 @@ size_t de_sparse_remove(de_sparse* s, de_entity e) {
     return pos;
 }
 
-/* initializes a de_storage, cp_size is the component data storage sizeof */
-de_storage* de_storage_init(de_storage* s, size_t cp_size) {
+// STORAGE FUNCTIONS
+
+static de_storage* de_storage_init(de_storage* s, size_t cp_size, size_t cp_id) {
     if (s) {
         *s = (de_storage){ 0 };
         de_sparse_init(&s->sparse);
         s->cp_sizeof = cp_size;
+        s->cp_id = cp_id;
     }
     return s;
 }
 
-/* allocate and initialize a de_storage with component data size cp_size*/
-de_storage* de_storage_new(size_t cp_size) {
-    return de_storage_init(malloc(sizeof(de_storage)), cp_size);
+static de_storage* de_storage_new(size_t cp_size, size_t cp_id) {
+    return de_storage_init(malloc(sizeof(de_storage)), cp_size, cp_id);
 }
 
-/* deinitializes a de_storage  */
-void de_storage_destroy(de_storage* s) {
+static void de_storage_destroy(de_storage* s) {
     if (s) {
         de_sparse_destroy(&s->sparse);
         free(s->cp_data);
     }
 }
 
-/* deinitializes and destroy a de_storage */
-void de_storage_delete(de_storage* s) {
+static void de_storage_delete(de_storage* s) {
     de_storage_destroy(s);
     free(s);
 }
 
-/*
-    assigns an entity to a storage and allocates the memory for its component 
-    struct data and returns the pointer to the allocated pointer. the memory
-    returned is ONLY allocated NOT initialized.
-
-    warning: attempting to use a de_entity that already belongs to the storage
-    or the de_null entity results in undefined behavior.
-*/
-void* de_storage_emplace(de_storage* s, de_entity e) {
+static void* de_storage_emplace(de_storage* s, de_entity e) {
     assert(s);
     // now allocate the data for the new component at the end of the array
     s->cp_data = realloc(s->cp_data, (s->cp_data_size + 1) * sizeof(char) * s->cp_sizeof);
@@ -543,14 +486,7 @@ void* de_storage_emplace(de_storage* s, de_entity e) {
     return cp_data_ptr;
 }
 
-/*
-    removes an entity from a storage and deallocates the memory. The memory is ONLY
-    deallocated NOT deinitialized.
-
-    warning: attempting to use a de_entity that doesn't belongs to the storage
-    or the de_null entity results in undefined behavior.
-*/
-void de_storage_remove(de_storage* s, de_entity e) {
+static void de_storage_remove(de_storage* s, de_entity e) {
     assert(s);
     size_t pos_to_remove = de_sparse_remove(&s->sparse, e);
 
@@ -565,68 +501,49 @@ void de_storage_remove(de_storage* s, de_entity e) {
     s->cp_data_size--;
 }
 
+static void* de_storage_get_by_index(de_storage* s, size_t index) {
+    assert(s);
+    assert(index < s->cp_data_size);
+    return &((char*)s->cp_data)[index * sizeof(char) * s->cp_sizeof];
+}
 
-
-/*
-    returns the data pointer associated with an entity
-
-    warning: attempting to use an entity that doesn't belongs to the storage
-    or the de_null entity results in undefined behavior.
-*/
-void* de_storage_get(de_storage* s, de_entity e) {
+static void* de_storage_get(de_storage* s, de_entity e) {
     assert(s);
     assert(e != de_null);
     return de_storage_get_by_index(s, de_sparse_index(&s->sparse, e));
 }
 
-/*
-    returns the data pointer associated with an entity, if any.
-    returns 0 if entity doesn't belongs to the storage.
-*/
-void* de_storage_try_get(de_storage* s, de_entity e) {
+static void* de_storage_try_get(de_storage* s, de_entity e) {
     assert(s);
     assert(e != de_null);
     return de_sparse_contains(&s->sparse, e) ? de_storage_get(s, e) : 0;
 }
 
-
-/*
-    returns true if the storage contains the entity e
-
-    warning: passing entity that doesn't belong to the storage
-    or the null entity results in undefined behavior.
-*/
-bool de_storage_contains(de_storage* s, de_entity e) {
+static bool de_storage_contains(de_storage* s, de_entity e) {
     assert(s);
     assert(e != de_null);
     return de_sparse_contains(&s->sparse, e);
 }
 
-
-
-/* initializes a de_registry */
 de_registry* de_init(de_registry* r) {
     if (r) {
+        r->storages = 0;
+        r->storages_size = 0;
         r->available_id.id = de_null;
         r->entities_size = 0;
-        r->entities = NULL;
-
-        // initialize and null the components storage array
-        r->storages = calloc(DE_COMPONENT_MAX_ID, sizeof * r->storages);
+        r->entities = 0;
     }
     return r;
 }
 
-/* allocates and initializes a de_registry */
 de_registry* de_new() {
     return de_init(malloc(sizeof(de_registry)));
 }
 
-/* deinitializes a de_registry */
 void de_deinit(de_registry* r) {
     if (r) {
         if (r->storages) {
-            for (size_t i = 0; i < DE_COMPONENT_MAX_ID; i++) {
+            for (size_t i = 0; i < r->storages_size; i++) {
                 de_storage_delete(r->storages[i]);
             }
         }
@@ -634,41 +551,18 @@ void de_deinit(de_registry* r) {
     }
 }
 
-/* deinitializes and deletes a registry*/
 void de_delete(de_registry* r) {
     de_deinit(r);
     free(r);
 }
 
-/* 
-    returns true if the component is registered correctly.
-    returns false if the component can't be registered (another one exists)
-
-*/
-bool de_register_component(de_registry* r, uint16_t cp_id, size_t cp_size) {
-    assert(r);
-    assert(cp_size); // FIX (dani) add support for 0 sized components
-    if (r->storages[cp_id] == 0) {
-        r->storages[cp_id] = de_storage_new(cp_size);
-        return true;
-    }
-    return false;
-}
-
-/*
-    checks if an entity identifier is a valid one.
-    the entity e can be a valid or an invalid one.
-    returns true if the identifier is valid, false otherwise
-*/
 bool de_valid(de_registry* r, de_entity e) {
     assert(r);
     const de_entity_id id = de_entity_identifier(e);
-    return id.id < r->entities_size&& r->entities[id.id] == e;
+    return id.id < r->entities_size && r->entities[id.id] == e;
 }
 
-
-/* internal function to generate a new de_entity */
-de_entity _de_generate_entity(de_registry* r) {
+static de_entity _de_generate_entity(de_registry* r) {
     assert(r->entities_size < DE_ENTITY_ID_MASK);
 
     // alloc one more element to the entities array
@@ -683,7 +577,7 @@ de_entity _de_generate_entity(de_registry* r) {
 }
 
 /* internal function to recycle a non used entity from the linked list */
-de_entity _de_recycle_entity(de_registry* r) {
+static de_entity _de_recycle_entity(de_registry* r) {
     assert(r->available_id.id != de_null);
     // get the first available entity id
     const de_entity_id curr_id = r->available_id;
@@ -698,19 +592,12 @@ de_entity _de_recycle_entity(de_registry* r) {
     return recycled_e;
 }
 
-/* internal function add the entity to the recycle linked list */
-void _de_release_entity(de_registry* r, de_entity e, de_entity_ver desired_version) {
+static void _de_release_entity(de_registry* r, de_entity e, de_entity_ver desired_version) {
     const de_entity_id e_id = de_entity_identifier(e);
     r->entities[e_id.id] = de_make_entity(r->available_id, desired_version);
     r->available_id = e_id;
 }
 
-/* 
-    creates a new entity and returns it 
-    the identifier can be:
-     - new identifier in case no entities have been previously destroyed
-     - recycled identifier with an update version.
-*/
 de_entity de_create(de_registry* r) {
     assert(r);
     if (r->available_id.id == de_null) {
@@ -720,58 +607,44 @@ de_entity de_create(de_registry* r) {
     }
 }
 
-
-/*
-    returns the de_storage pointer for a given component id.
-    if the component id is not registered it will return a null pointer.
-
-*/
-de_storage* de_assure(de_registry* r, de_cp_id cp_id) {
+de_storage* de_assure(de_registry* r, de_cp_type cp_type) {
     assert(r);
-    return r->storages[cp_id] ? r->storages[cp_id] : 0;
+    de_storage* storage_found = 0;
+
+    for (size_t i = 0; i < r->storages_size; i++) {
+        if (r->storages[i]->cp_id == cp_type.cp_id) {
+            storage_found = r->storages[i];
+        }
+    }
+
+    if (storage_found) {
+        return storage_found;
+    } else {
+        de_storage* storage_new = de_storage_new(cp_type.cp_sizeof, cp_type.cp_id);
+        r->storages = realloc(r->storages, (r->storages_size + 1) * sizeof * r->storages);
+        r->storages[r->storages_size] = storage_new;
+        r->storages_size++;
+        return storage_new;
+    }
 }
 
-/*
-    removes all the components from an entity and makes it orphaned (no components in it)
-    the entity remains alive and valid without components.
-
-    warning: attempting to use invalid entity results in undefined behavior
-
-*/
 void de_remove_all(de_registry* r, de_entity e) {
     assert(r);
     assert(de_valid(r, e));
-
-    // FIX (dani) super bad.. we have to traverse the entire pools array to delete the entity
-    // from all of them if is contained.. very bad performance..
-    for (size_t i = DE_COMPONENT_MAX_ID; i; --i) {
+    
+    for (size_t i = r->storages_size; i; --i) {
         if (r->storages[i - 1] && de_sparse_contains(&r->storages[i - 1]->sparse, e)) {
             de_storage_remove(r->storages[i - 1], e);
         }
     }
 }
 
-/*
-    removes the given component from the entity.
-    
-    warning: attempting to use invalid entity results in undefined behavior
-*/
-void de_remove(de_registry* r, de_entity e, de_cp_id cp_id) {
+void de_remove(de_registry* r, de_entity e, de_cp_type cp_type) {
     assert(false);
     assert(de_valid(r, e));
-    de_storage_remove(de_assure(r, cp_id), e);
+    de_storage_remove(de_assure(r, cp_type), e);
 }
 
-
-/*
-    destroys an entity.
-
-    when an entity is destroyed, its version is updated and the identifier
-    can be recycled when needed.
-
-    warning:
-    Undefined behavior if the entity is not valid.
-*/
 void de_destroy(de_registry* r, de_entity e) {
     assert(r);
     assert(e != de_null);
@@ -785,85 +658,40 @@ void de_destroy(de_registry* r, de_entity e) {
     _de_release_entity(r, e, new_version);
 }
 
-/*
-    checks if the entity has the given component
-
-    warning: using an invalid entity results in undefined behavior.
-*/
-bool de_has(de_registry* r, de_entity e, de_cp_id cp_id) {
+bool de_has(de_registry* r, de_entity e, de_cp_type cp_type) {
     assert(r);
     assert(de_valid(r, e));
-    assert(de_assure(r, cp_id));
-    return de_storage_contains(de_assure(r, cp_id), e);
+    assert(de_assure(r, cp_type));
+    return de_storage_contains(de_assure(r, cp_type), e);
+}
+
+void* de_emplace(de_registry* r, de_entity e, de_cp_type cp_type) {
+    assert(r);
+    assert(de_valid(r, e));
+    assert(de_assure(r, cp_type));
+    return de_storage_emplace(de_assure(r, cp_type), e);
+}
+
+void* de_get(de_registry* r, de_entity e, de_cp_type cp_type) {
+    assert(r);
+    assert(de_valid(r, e));
+    assert(de_assure(r, cp_type));
+    return de_storage_get(de_assure(r, cp_type), e);
+}
+
+void* de_try_get(de_registry* r, de_entity e, de_cp_type cp_type) {
+    assert(r);
+    assert(de_valid(r, e));
+    assert(de_assure(r, cp_type));
+    return de_storage_try_get(de_assure(r, cp_type), e);
 }
 
 
-/*
-    assigns a given component id to an entity and returns it.
-
-    a new memory instance of component id cp_id is allocated for the
-    entity e and returned. 
-
-    note: the memory returned is only allocated not initialized.
-
-    warning: use an invalid entity or assigning a component to a valid
-    entity that currently has this component instance id results in 
-    undefined behavior.
-    if cp_id is not registered the result is undefined behavior.
-*/
-void* de_emplace(de_registry* r, de_entity e, de_cp_id cp_id) {
-    assert(r);
-    assert(de_valid(r, e));
-    assert(de_assure(r, cp_id));
-    return de_storage_emplace(de_assure(r, cp_id), e);
-}
-
-/*
-    returns the pointer to the given component id data for the entity
-
-    warning:
-    use an invalid entity to get a component from an entity
-    that doesn't own it results in undefined behavior.
-
-    if cp_id is not registered the result is undefined behavior.
-*/
-void* de_get(de_registry* r, de_entity e, de_cp_id cp_id) {
-    assert(r);
-    assert(de_valid(r, e));
-    assert(de_assure(r, cp_id));
-    return de_storage_get(de_assure(r, cp_id), e);
-}
-
-/*
-    returns the pointer to the given component id data for the entity
-
-    warning:
-    use an invalid entity to get a component from an entity
-    that doesn't own it results in undefined behavior.
-
-    if cp_id is not registered the result is undefined behavior.
-*/
-void* de_try_get(de_registry* r, de_entity e, de_cp_id cp_id) {
-    assert(r);
-    assert(de_valid(r, e));
-    assert(de_assure(r, cp_id));
-    return de_storage_try_get(de_assure(r, cp_id), e);
-}
-
-/*
-    iterates all the entities that are still in use.
-
-    the function pointer is invoked for each entity that is still in use.
-    
-    this is a fairly slow operation and should not be used frequently.
-    however it's useful for iterating all the entities still in use,
-    regarding their components.
-
-    warning: the function is not optional, undefined behavior if fun is null.
-*/
 void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata) {
     assert(r);
-    assert(fun);
+    if (!fun) {
+        return;
+    }
 
     if (r->available_id.id == de_null) {
         for (size_t i = r->entities_size; i; --i) {
@@ -879,50 +707,85 @@ void de_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* 
     }
 }
 
-
-
-
-///////// VIEWS
-/* 
- we can acces each component of an entity using de_get or try_get but this is not cache friendly.
- so we need a way to iterate (view) all the components of the same type in a cache friendly way.
-
- FIX (dani) think of an structure to iterate the storages ENTT uses the view class
- investigate a little bit the main idea should be this:
-
-    for the component id = 0
-
-    const size_t entities_size = r->storages[0].sparse.dense_size;
-    
-    de_entity*  entities_array = r->storages[0].sparse.dense;
-    void*       components_array = r->storages[0]->cp_data;
-
-
-    for (size_t i = 0; i < entities_size; i++) {
-        de_entity e = entities_array[i];
-        void*     c = components_array[i]; // this will need some pointer gymnastics ofc..
-        
-        .... your code...
+bool de_orphan(de_registry* r, de_entity e) {
+    assert(r);
+    assert(de_valid(r, e));
+    for (size_t pool_i = 0; pool_i < r->storages_size; pool_i++) {
+        if (r->storages[pool_i]) {
+            if (de_storage_contains(r->storages[pool_i], e)) {
+                return false;
+            }
+        }
     }
-*/
-de_view_single de_create_view_single(de_registry* r, de_cp_id cp_id) {
+    return true;
+}
+
+/* Internal function to iterate orphans*/
+typedef struct de_orphans_fun_data {
+    void* orphans_udata;
+    void (*orphans_fun)(de_registry*, de_entity, void*);
+} de_orphans_fun_data;
+
+static void _de_orphans_each_executor(de_registry* r, de_entity e, void* udata) {
+    de_orphans_fun_data* orphans_data = udata;
+    if (de_orphan(r, e)) {
+        orphans_data->orphans_fun(r, e, orphans_data->orphans_udata);
+    }
+}
+
+void de_orphans_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata) {
+    de_each(r, _de_orphans_each_executor, &(de_orphans_fun_data) { .orphans_udata = udata, .orphans_fun = fun });
+}
+
+// VIEW SINGLE COMPONENT
+
+de_view_single de_create_view_single(de_registry* r, de_cp_type cp_type) {
     assert(r);
     de_view_single v = { 0 };
-    v.pool = de_assure(r, cp_id);
+    v.pool = de_assure(r, cp_type);
     assert(v.pool);
 
     if (v.pool->cp_data_size != 0) {
-        v.current_entity_index = v.pool->cp_data_size - 1;
-        v.has_ended = false;
-    }
-    else {
+        // get the last entity of the pool
+        v.current_entity_index = v.pool->cp_data_size - 1; 
+        v.entity = v.pool->sparse.dense[v.current_entity_index];
+    } else {
         v.current_entity_index = 0;
-        v.has_ended = true;
+        v.entity = de_null;
     }
     return v;
 }
 
-static inline bool de_view_entity_contained(de_view* v, de_entity e) {
+bool de_view_single_valid(de_view_single* v) {
+    assert(v);
+    return (v->entity != de_null);
+}
+
+de_entity de_view_single_entity(de_view_single* v) {
+    assert(v);
+    return v->entity;
+}
+
+void* de_view_single_get(de_view_single* v) {
+    assert(v);
+    return de_storage_get_by_index(v->pool, v->current_entity_index);
+}
+
+void de_view_single_next(de_view_single* v) {
+    assert(v);
+    if (v->current_entity_index) {
+        v->current_entity_index--;
+        v->entity = v->pool->sparse.dense[v->current_entity_index];
+    }
+    else {
+        v->entity = de_null;
+    }
+}
+
+
+/// VIEW MULTI COMPONENTS
+
+bool de_view_entity_contained(de_view* v, de_entity e) {
     assert(v);
     assert(de_view_valid(v));
 
@@ -932,9 +795,24 @@ static inline bool de_view_entity_contained(de_view* v, de_entity e) {
     return true;
 }
 
-void* de_view_get(de_view* v, size_t pool_index) {
+size_t de_view_get_index(de_view* v, de_cp_type cp_type) {
     assert(v);
-    assert(pool_index < DE_MAX_VIEW_COMPONENTS);
+    for (size_t i = 0; i < v->pool_count; i++) {
+        if (v->to_pool_index[i] == cp_type.cp_id) {
+            return i;
+        }
+    }
+    assert(0); // FIX (dani) cp not found in the view pools
+    return 0;
+}
+
+void* de_view_get(de_view* v, de_cp_type cp_type) {
+    return de_view_get_by_index(v, de_view_get_index(v, cp_type));
+}
+
+void* de_view_get_by_index(de_view* v, size_t pool_index) {
+    assert(v);
+    assert(pool_index > 0 && pool_index < DE_MAX_VIEW_COMPONENTS);
     assert(de_view_valid(v));
     return de_storage_get(v->all_pools[pool_index], v->current_entity);
 }
@@ -955,17 +833,17 @@ void de_view_next(de_view* v) {
 }
 
 
-de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
+de_view de_create_view(de_registry* r, size_t cp_count, de_cp_type *cp_types) {
     assert(r);
     assert(cp_count < DE_MAX_VIEW_COMPONENTS);
-    assert(cp_id);
+    
 
     de_view v = { 0 };
     v.pool_count = cp_count;
     // setup pools pointer and find the smallest pool that we 
     // use for iterations
     for (size_t i = 0; i < cp_count; i++) {
-        v.all_pools[i] = de_assure(r, cp_id[i]);
+        v.all_pools[i] = de_assure(r, cp_types[i]);
         assert(v.all_pools[i]);
         if (!v.pool) {
             v.pool = v.all_pools[i];
@@ -974,6 +852,7 @@ de_view de_create_view(de_registry* r, size_t cp_count, de_cp_id* cp_id) {
                 v.pool = v.all_pools[i];
             }
         }
+        v.to_pool_index[i] = cp_types[i].cp_id;
     }
 
     if (v.pool && v.pool->cp_data_size != 0) {
@@ -1001,33 +880,6 @@ de_entity de_view_entity(de_view* v) {
     assert(de_view_valid(v));
     return v->pool->sparse.dense[v->current_entity_index];
 }
-
-
-
-
-//// encapsulate type information needed for the registry
-//typedef struct de_component_type_info {
-//    size_t cp_id; // component unique id
-//    size_t cp_sizeof; // component sizeof
-//    // maybe here we can add function callbacks for initialization and deinitialization of the component
-//}de_cp_type;
-//
-//typedef struct position { int x; int y; } position;
-//typedef struct rotation { float rotation; } rotation;
-//
-//// here you define each component you will use
-//de_cp_type cp_position = { .cp_id = 0, .cp_sizeof = sizeof(position) };
-//de_cp_type cp_rotation = { .cp_id = 1, .cp_sizeof = sizeof(rotation) };
-//
-//
-//// and use it like this (no registration needed)
-//de_registry* r = de_new();
-//de_entity e = de_create(r);
-//position* tr = de_emplace(r, e, cp_position);
-//rotation* rot = de_emplace(r, e, cp_rotation);
-
-
-
 
 #endif // DESTRAL_ECS_IMPL
 #endif // DESTRAL_ECS_H
