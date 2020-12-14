@@ -1,5 +1,6 @@
 # destral_ecs
-Is a single-file (destral_ecs.h) header that implements a very fast ECS registry.
+Is a single-file (destral_ecs.h) C header that implements a very fast ECS registry.
+
 The inner implementation uses an sparse set based on the outstanding ENTT (C++) ECS library.
 
 # Project goals:
@@ -25,6 +26,9 @@ You have more libraries like this here:
 # Basic Example:
 
 ```c
+#define DESTRAL_ECS_IMPL
+#include "destral_ecs.h"
+#include <stdio.h>
 
 typedef struct transform {
     int x;
@@ -36,13 +40,13 @@ typedef struct velocity {
     float v;
 } velocity;
 
-// Define your custom component types
+// Define your custom component types, the ID must be different
+// as this will be used to identify a component.
 static const de_cp_type transform_type = DE_MAKE_CP_TYPE(0, transform);
 static const de_cp_type velocity_type = DE_MAKE_CP_TYPE(1, velocity);
 
 int main() {
     de_registry* r = de_new();
-
     
     de_entity e1 = de_create(r);
     de_entity e2 = de_create(r);
