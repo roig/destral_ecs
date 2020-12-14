@@ -1,17 +1,28 @@
-# Destral_ecs
-ENTT like implementation of ECS in C
+# destral_ecs
+Is a single-file (destral_ecs.h) header that implements a very fast ECS registry.
+The inner implementation uses an sparse set based on the outstanding ENTT (C++) ECS library.
 
+# Project goals:
+
+* Fast iteration of components (SOA).
+* Fast compilation.
+* Super easy API to use.
 
 # Basic usage:
-In ONE of your source files, do this:
+Download only the destral_ecs.h header.
+Then in ONLY one of your source files, do this:
 ```cpp
 #define DESTRAL_ECS_IMPL
 #include "destral_ecs.h"
 ```
-and that's it! use the header in other files as a normal header
+This will "convert" the header file into a header+source file in one Translation Unit, so it will compile all the functions one time.
+In other files just use the regular include without the #define. 
 
+You have more libraries like this here:
+- https://github.com/RandyGaul/cute_headers
+- https://github.com/nothings/stb
 
-# Example:
+# Basic Example:
 
 ```c
 
