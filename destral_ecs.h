@@ -7,7 +7,7 @@
         #define DESTRAL_ECS_IMPL
     before you include this file in *one* C file to create the implementation.
 
-    FIX (dani) todo proper instructions
+    FIX (dani) TODO proper instructions
 
 */
 
@@ -248,8 +248,17 @@ void* de_view_get_by_index(de_view* v, size_t pool_index);
 void de_view_next(de_view* v);
 
 /**************** Implementation ****************/
-//#define DESTRAL_ECS_IMPL
 #ifdef DESTRAL_ECS_IMPL
+
+/*
+ TODO LIST:
+    - Context variables (those are like global variables) but are inside the registry, malloc/freed inside the registry.
+    - Try to make the API simpler  for single/multi views. 
+    (de_it_start, de_it_next, de_it_valid
+    (de_multi_start, de_multi_next, de_multi_valid,)
+    - Callbacks on component insertions/deletions/updates
+*/
+
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -273,6 +282,7 @@ de_entity de_make_entity(de_entity_id id, de_entity_ver version) { return id.id 
     How the components sparse set works?
     The main idea comes from ENTT C++ library:
     https://github.com/skypjack/entt
+    https://github.com/skypjack/entt/wiki/Crash-Course:-entity-component-system#views
     (Credits to skypjack) for the awesome library.
 
     We have an sparse array that maps entity identifiers to the dense array indices that contains the full entity.
@@ -784,8 +794,7 @@ void de_view_single_next(de_view_single* v) {
     if (v->current_entity_index) {
         v->current_entity_index--;
         v->entity = ((de_storage*)v->pool)->sparse.dense[v->current_entity_index];
-    }
-    else {
+    } else {
         v->entity = de_null;
     }
 }
@@ -798,7 +807,9 @@ bool de_view_entity_contained(de_view* v, de_entity e) {
     assert(de_view_valid(v));
 
     for (size_t pool_id = 0; pool_id < v->pool_count; pool_id++) {
-        if (!de_storage_contains(v->all_pools[pool_id], e)) return false;
+        if (!de_storage_contains(v->all_pools[pool_id], e)) { 
+            return false; 
+        }
     }
     return true;
 }
