@@ -26,6 +26,7 @@ You have more libraries like this here:
 # Basic Example:
 
 ```c
+#define DESTRAL_ECS_IMPL
 #include "destral_ecs.h"
 #include <stdio.h>
 
