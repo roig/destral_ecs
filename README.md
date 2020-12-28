@@ -26,7 +26,6 @@ You have more libraries like this here:
 # Basic Example:
 
 ```c
-#define DESTRAL_ECS_IMPL
 #include "destral_ecs.h"
 #include <stdio.h>
 
@@ -40,13 +39,14 @@ typedef struct velocity {
     float v;
 } velocity;
 
-// Define your custom component types, the ID must be different
-// as this will be used to identify a component.
-static const de_cp_type transform_type = DE_MAKE_CP_TYPE(0, transform);
+// Define your component types directly:
+static const de_cp_type transform_type = { .cp_id = 0, .cp_sizeof = sizeof(transform) , .name = "transform"};
+// Or with the macro:
 static const de_cp_type velocity_type = DE_MAKE_CP_TYPE(1, velocity);
 
 int main() {
-    de_registry* r = de_new();
+    de_ecs* r = de_ecs_make();
+
     
     de_entity e1 = de_create(r);
     de_entity e2 = de_create(r);
@@ -84,6 +84,6 @@ int main() {
         printf("velocity  entity: %d => w=%f\n", de_entity_identifier(e).id, tc->v);
     }
 
-    de_delete(r);
+    de_ecs_destroy(r);
 }
 ```
