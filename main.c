@@ -17,7 +17,7 @@ static const de_cp_type transform_type = { .cp_id = 0, .cp_sizeof = sizeof(trans
 static const de_cp_type velocity_type = DE_MAKE_CP_TYPE(1, velocity);
 
 int main() {
-    de_ecs* r = de_ecs_make();
+    de_registry* r = de_registry_create();
 
     
     de_entity e1 = de_create(r);
@@ -56,5 +56,5 @@ int main() {
         printf("velocity  entity: %d => w=%f\n", de_entity_identifier(e).id, tc->v);
     }
 
-    de_ecs_destroy(r);
+    de_registry_destroy(r);
 }
