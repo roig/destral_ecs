@@ -187,6 +187,8 @@ bool de_orphan(de_registry* r, de_entity e);
 void de_orphans_each(de_registry* r, void (*fun)(de_registry*, de_entity, void*), void* udata);
 
 
+void de_iterate(de_registry* r, de_cp_type cp_id, void (*fn)(de_registry, size_t, de_entity, void*));
+
 /*
     de_view_single
 
@@ -246,7 +248,7 @@ void* de_view_get_by_index(de_view* v, size_t pool_index);
 void de_view_next(de_view* v);
 
 /**************** Implementation ****************/
-//#define DESTRAL_ECS_IMPL
+#define DESTRAL_ECS_IMPL
 #ifdef DESTRAL_ECS_IMPL
 
 /*
@@ -836,6 +838,44 @@ de_entity de_view_entity(de_view* v) {
     assert(v);
     assert(de_view_valid(v));
     return ((de_storage*)v->pool)->dense[v->current_entity_index];
+}
+
+
+void de_iterate(de_registry* r, de_cp_type cp_id, void (*fn)(de_registry*, size_t, de_entity*, void*)) {
+    assert(r);
+    de_storage* s = de_assure(r, cp_id);
+    assert(s);
+
+    if (fn) {
+        fn(r, s->cp_data_size, s->dense, s->cp_data);
+    }
+}
+
+typedef struct de_view2 {
+    de_entity* entities;
+    size_t size;
+    void* cp_data;
+    size_t cp_sizeof;
+} de_view2;
+
+de_view2 de_view_make(de_registry* r, de_cp_type cp_id) {
+    assert(r);
+    de_storage* s = de_assure(r, cp_id);
+    assert(s);
+    de_view2 ret = { 0 };
+    ret.size = s->cp_data_size;
+    ret.cp_data = s->cp_data;
+    ret.entities = s->dense;
+    ret.cp_sizeof = s->cp_sizeof;
+    return ret;
+}
+
+void* de_view2_data(de_view2* v, size_t index) {
+    return &((char*)v->cp_data)[index * v->cp_sizeof];
+}
+
+de_entity de_view2_entity(de_view2 v, size_t index) {
+    v.entities[index];
 }
 
 #endif // DESTRAL_ECS_IMPL
