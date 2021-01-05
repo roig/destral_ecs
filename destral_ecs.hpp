@@ -61,7 +61,20 @@ void ecs_entity_register(ecs_registry* r, const char* name, std::vector<const ch
 de_entity ecs_entity_make(ecs_registry* r, const char* name);
 
 
+struct ecs_cp_view {
+    std::vector<void*> data;
+    de_entity current_entity = de_null;
 
+
+    struct ecs_view_impl {
+        size_t current_entity_index = 0;
+        de_entity* dense_array;
+        size_t dense_array_size;
+    } _impl;
+
+    std::vector<ecs_cp_storage*> cp_storages;
+    ecs_cp_storage* iterating_storage = nullptr;
+};
 
 /*  de_entity:
 
@@ -828,12 +841,12 @@ void ecs_sys_add(ecs_registry* r, const char* name, std::vector<const char*> cps
     r->systems.push_back(s);
 }
 
-struct ecs_cp_view {
-    std::vector<ecs_cp_storage*> cp_storages;
-    ecs_cp_storage* iterating_storage = nullptr;
-    size_t current_entity_index = 0;
-    de_entity current_entity = de_null;
-};
+//struct ecs_cp_view {
+//    std::vector<ecs_cp_storage*> cp_storages;
+//    ecs_cp_storage* iterating_storage = nullptr;
+//    size_t current_entity_index = 0;
+//    de_entity current_entity = de_null;
+//};
 
 bool ecs_view_valid(ecs_cp_view* v) {
     assert(v);
