@@ -1,4 +1,6 @@
+BEFORE PROCEEDING: PROJECT NOT MAINTAINED, HAVE MEMORY BUGS THAT ARE NOT FIXED
 # destral_ecs
+
 Is a single-file (destral_ecs.h) C header that implements a very fast ECS registry.
 
 The inner implementation uses an sparse set based on the outstanding ENTT (C++) ECS library.
