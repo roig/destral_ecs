@@ -564,10 +564,12 @@ void de_ecs_destroy(de_ecs* r) {
             for (size_t i = 0; i < r->storages_size; i++) {
                 de_storage_delete(r->storages[i]);
             }
+            free(r->storages);
+            r->storages = NULL;
         }
         free(r->entities);
+        free(r);
     }
-    free(r);
 }
 
 
